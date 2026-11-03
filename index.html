@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSS Reader</title>
+    <style>
+        :root {
+            --bg-color: #f4f6f8;
+            --card-bg: #ffffff;
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --text-color: #1f2937;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .search-box {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        input[type="url"], input[type="number"] {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input[type="url"] {
+            flex-grow: 1;
+        }
+
+        input[type="number"] {
+            width: 70px;
+        }
+
+        button {
+            padding: 10px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .preset-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .preset-btn {
+            background: #e0e7ff;
+            color: #3730a3;
+            font-size: 12px;
+            padding: 4px 8px;
+        }
+
+        .preset-btn:hover {
+            background: #c7d2fe;
+        }
+
+        .feed-header {
+            margin: 20px 0 10px 0;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+        }
+
+        .feed-header a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 12px;
+        }
+
+        .card h3 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+        }
+
+        .card h3 a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .card h3 a:hover {
+            text-decoration: underline;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .summary {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .loading, .error {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+
+        .error {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>RSS Reader</h1>
+
+    <div class="search-box">
+        <form id="rssForm">
+            <div class="input-group">
+                <input type="url" id="feedUrl" placeholder="Enter RSS Feed URL..." required>
+                <input type="number" id="limit" value="10" min="1" max="50">
+                <button type="submit">Fetch Feed</button>
+            </div>
+        </form>
+
+        <div class="preset-buttons">
+            <button class="preset-btn" onclick="setFeed('https://news.ycombinator.com/rss')">Hacker News</button>
+            <button class="preset-btn" onclick="setFeed('https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml')">NY Times</button>
+            <button class="preset-btn" onclick="setFeed('http://feeds.bbci.co.uk/news/rss.xml')">BBC News</button>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">Fetching feed items...</div>
+    <div id="error" class="error"></div>
+    <div id="feedContent"></div>
+</div>
+
+<script>
+    const form = document.getElementById('rssForm');
+    const feedUrlInput = document.getElementById('feedUrl');
+    const limitInput = document.getElementById('limit');
+    const loadingDiv = document.getElementById('loading');
+    const errorDiv = document.getElementById('error');
+    const feedContentDiv = document.getElementById('feedContent');
+
+    function setFeed(url) {
+        feedUrlInput.value = url;
+        fetchFeed();
+    }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        fetchFeed();
+    });
+
+    async function fetchFeed() {
+        const url = feedUrlInput.value;
+        const limit = limitInput.value;
+
+        if (!url) return;
+
+        loadingDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+        feedContentDiv.innerHTML = '';
+
+        try {
+            const response = await fetch(`/rss?url=${encodeURIComponent(url)}&limit=${limit}`);
+            
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.detail || 'Failed to fetch RSS feed');
+            }
+
+            const data = await response.json();
+            renderFeed(data);
+        } catch (err) {
+            errorDiv.textContent = err.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            loadingDiv.style.display = 'none';
+        }
+    }
+
+    function renderFeed(data) {
+        let html = `
+            <div class="feed-header">
+                <h2><a href="${data.feed_link}" target="_blank" rel="noopener">${data.feed_title}</a></h2>
+            </div>
+        `;
+
+        data.items.forEach(item => {
+            html += `
+                <div class="card">
+                    <h3><a href="${item.link}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a></h3>
+                    <div class="meta">
+                        ${item.published ? `<span>Published: ${escapeHtml(item.published)}</span>` : ''}
+                        ${item.author ? ` | <span>By: ${escapeHtml(item.author)}</span>` : ''}
+                    </div>
+                    <div class="summary">${item.summary || 'No summary available.'}</div>
+                </div>
+            `;
+        });
+
+        feedContentDiv.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>
