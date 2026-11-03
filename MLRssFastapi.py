@@ -4,77 +4,45 @@ import feedparser
 from typing import List, Optional, Dict
 from pydantic import BaseModel, HttpUrl
 from datetime import datetime
-import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import numpy as np
 
 app = FastAPI(title="RSS News Reader API with ML")
 
-# Initialize ML models (loaded once at startup)
+# Optional: Try importing transformers and torch, handle gracefully if missing
+try:
+    import torch
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
 class MLModels:
     def __init__(self):
-        # Sentiment Analysis Model
-        self.sentiment_analyzer = pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english"
-        )
-        
-        # Text Summarization Model
-        self.summarizer = pipeline(
-            "summarization",
-            model="facebook/bart-large-cnn"
-        )
-        
-        # Zero-shot Classification for Topic Detection
-        self.classifier = pipeline(
-            "zero-shot-classification",
-            model="facebook/bart-large-mnli"
-        )
-        
-        # Topic categories for news classification
-        self.topics = [
-            "Technology", "Business", "Science", "Politics",
-            "Entertainment", "Sports", "Health", "Finance"
-        ]
-    
-    def analyze_sentiment(self, text: str) -> Dict:
-        """Analyze sentiment of text"""
-        if not text or len(text.strip()) == 0:
-            return {"label": "NEUTRAL", "score": 0.5}
-        
-        # Truncate text if too long
-        text = text[:512]
-        result = self.sentiment_analyzer(text)[0]
-        return result
-    
-    def summarize_text(self, text: str, max_length: int = 130) -> str:
-        """Generate summary of text"""
-        if not text or len(text.split()) < 50:
-            return text
+        if not TRANSFORMERS_AVAILABLE:
+            print("Transformers/Torch not found. ML features will be disabled.")
+            return
         
         try:
-            summary = self.summarizer(
-                text,
-                max_length=max_length,
-                min_length=30,
-                do_sample=False
-            )[0]['summary_text']
-            return summary
-        except:
-            return text[:200] + "..."
-    
-    def classify_topic(self, text: str) -> Dict:
-        """Classify text into topic categories"""
-        if not text or len(text.strip()) == 0:
-            return {"topic": "Unknown", "confidence": 0.0}
+            print("Loading Sentiment Analysis model...")
+            self.sentiment_analyzer = pipeline(
+                "sentiment-analysis",
+                model="distilbert-base-uncased-finetuned-sst-2-english"
+            )
+            print("Sentiment model loaded successfully!")
+        except Exception as e:
+            print(f"Failed to load sentiment model: {e}")
+            self.sentiment_analyzer = None
+
+    def analyze_sentiment(self, text: str) -> Dict:
+        """Analyze sentiment of text"""
+        if not self.sentiment_analyzer or not text or len(text.strip()) == 0:
+            return {"label": "NEUTRAL", "score": 0.5}
         
-        text = text[:512]
-        result = self.classifier(text, self.topics)
-        return {
-            "topic": result['labels'][0],
-            "confidence": result['scores'][0],
-            "all_scores": dict(zip(result['labels'], result['scores']))
-        }
+        try:
+            text = text[:512]
+            result = self.sentiment_analyzer(text)[0]
+            return result
+        except Exception:
+            return {"label": "NEUTRAL", "score": 0.5}
 
 # Initialize models at startup
 ml_models = None
@@ -83,9 +51,8 @@ ml_models = None
 async def load_models():
     """Load ML models when the app starts"""
     global ml_models
-    print("Loading ML models...")
+    print("Initializing ML helper...")
     ml_models = MLModels()
-    print("ML models loaded successfully!")
 
 class RSSItem(BaseModel):
     title: str
@@ -93,10 +60,7 @@ class RSSItem(BaseModel):
     published: Optional[str] = None
     summary: Optional[str] = None
     author: Optional[str] = None
-    # ML Analysis fields
     sentiment: Optional[Dict] = None
-    topic: Optional[Dict] = None
-    ai_summary: Optional[str] = None
 
 class RSSFeed(BaseModel):
     feed_title: str
@@ -110,13 +74,7 @@ async def root():
         "message": "RSS News Reader API with ML Analysis",
         "endpoints": {
             "/rss": "Fetch RSS feed by URL with ML analysis",
-            "/rss/multiple": "Fetch multiple RSS feeds with ML analysis",
             "/rss/simple": "Fetch RSS feed without ML analysis"
-        },
-        "ml_features": {
-            "sentiment_analysis": "Analyzes sentiment of each article",
-            "topic_classification": "Classifies articles into topics",
-            "ai_summarization": "Generates AI summaries of articles"
         }
     }
 
@@ -124,21 +82,15 @@ async def root():
 async def get_rss_feed(
     url: HttpUrl,
     limit: Optional[int] = 10,
-    analyze: bool = True,
-    summarize: bool = False
+    analyze: bool = True
 ):
     """
     Fetch and parse an RSS feed with ML analysis
-    
-    - **url**: RSS feed URL
-    - **limit**: Maximum number of items to return (default: 10)
-    - **analyze**: Perform sentiment and topic analysis (default: True)
-    - **summarize**: Generate AI summaries (default: False, slower)
     """
     try:
         feed = feedparser.parse(str(url))
         
-        if feed.bozo:
+        if feed.bozo and not feed.entries:
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to parse RSS feed: {feed.bozo_exception}"
@@ -146,10 +98,8 @@ async def get_rss_feed(
         
         items = []
         sentiments = []
-        topics = []
         
         for entry in feed.entries[:limit]:
-            # Extract text for analysis
             text_content = entry.get('summary', '') or entry.get('title', '')
             
             item_data = {
@@ -160,25 +110,13 @@ async def get_rss_feed(
                 "author": entry.get('author', None)
             }
             
-            # Perform ML analysis if requested
             if analyze and ml_models and text_content:
-                # Sentiment Analysis
                 sentiment = ml_models.analyze_sentiment(text_content)
                 item_data["sentiment"] = sentiment
                 sentiments.append(sentiment['label'])
-                
-                # Topic Classification
-                topic = ml_models.classify_topic(text_content)
-                item_data["topic"] = topic
-                topics.append(topic['topic'])
-                
-                # AI Summarization (optional, slower)
-                if summarize and len(text_content.split()) > 50:
-                    item_data["ai_summary"] = ml_models.summarize_text(text_content)
             
             items.append(RSSItem(**item_data))
         
-        # Generate overall analysis summary
         analysis_summary = None
         if analyze and sentiments:
             analysis_summary = {
@@ -187,7 +125,6 @@ async def get_rss_feed(
                     "positive": sentiments.count("POSITIVE"),
                     "negative": sentiments.count("NEGATIVE")
                 },
-                "top_topics": list(set(topics[:5])),
                 "dominant_sentiment": max(set(sentiments), key=sentiments.count) if sentiments else "NEUTRAL"
             }
         
@@ -201,6 +138,15 @@ async def get_rss_feed(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching RSS feed: {str(e)}")
 
+from fastapi.responses import HTMLResponse, FileResponse
+import os
+
+@app.get("/app", response_class=HTMLResponse)
+async def serve_ml_app():
+    if not os.path.exists("indexML.html"):
+        raise HTTPException(status_code=404, detail="index2.html file not found")
+    return FileResponse("indexML.html")
+
 @app.get("/rss/simple")
 async def get_rss_feed_simple(url: HttpUrl, limit: Optional[int] = 10):
     """
@@ -209,7 +155,7 @@ async def get_rss_feed_simple(url: HttpUrl, limit: Optional[int] = 10):
     try:
         feed = feedparser.parse(str(url))
         
-        if feed.bozo:
+        if feed.bozo and not feed.entries:
             raise HTTPException(
                 status_code=400,
                 detail=f"Failed to parse RSS feed: {feed.bozo_exception}"
@@ -234,65 +180,6 @@ async def get_rss_feed_simple(url: HttpUrl, limit: Optional[int] = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching RSS feed: {str(e)}")
 
-@app.post("/rss/multiple")
-async def get_multiple_feeds(
-    urls: List[HttpUrl],
-    limit: Optional[int] = 5,
-    analyze: bool = True
-):
-    """
-    Fetch multiple RSS feeds with ML analysis
-    """
-    results = []
-    
-    for url in urls:
-        try:
-            feed = feedparser.parse(str(url))
-            
-            if not feed.bozo:
-                items = []
-                for entry in feed.entries[:limit]:
-                    text_content = entry.get('summary', '') or entry.get('title', '')
-                    
-                    item_data = {
-                        "title": entry.get('title', 'No title'),
-                        "link": entry.get('link', ''),
-                        "published": entry.get('published', None),
-                        "summary": entry.get('summary', ''),
-                        "author": entry.get('author', None)
-                    }
-                    
-                    if analyze and ml_models and text_content:
-                        item_data["sentiment"] = ml_models.analyze_sentiment(text_content)
-                        item_data["topic"] = ml_models.classify_topic(text_content)
-                    
-                    items.append(item_data)
-                
-                results.append({
-                    "url": str(url),
-                    "status": "success",
-                    "feed": {
-                        "feed_title": feed.feed.get('title', 'Unknown Feed'),
-                        "feed_link": feed.feed.get('link', ''),
-                        "items": items
-                    }
-                })
-            else:
-                results.append({
-                    "url": str(url),
-                    "status": "error",
-                    "error": str(feed.bozo_exception)
-                })
-        except Exception as e:
-            results.append({
-                "url": str(url),
-                "status": "error",
-                "error": str(e)
-            })
-    
-    return JSONResponse(content={"results": results})
-
-# Example usage
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
