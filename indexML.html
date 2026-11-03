@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML RSS News Reader</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --primary-color: #4f46e5;
+            --primary-hover: #4338ca;
+            --text-color: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #cbd5e1;
+            --positive: #16a34a;
+            --negative: #dc2626;
+            --neutral: #ca8a04;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 24px;
+        }
+
+        .control-panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        input[type="url"], input[type="number"] {
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        input[type="url"] {
+            flex-grow: 1;
+        }
+
+        input[type="number"] {
+            width: 80px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .presets {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .preset-btn {
+            background: #e0e7ff;
+            color: #3730a3;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 6px;
+        }
+
+        .preset-btn:hover {
+            background: #c7d2fe;
+        }
+
+        .dashboard-summary {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .dashboard-summary h3 {
+            margin-top: 0;
+            color: #1e40af;
+        }
+
+        .feed-header {
+            margin: 20px 0 10px 0;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+        }
+
+        .feed-header a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 14px;
+            position: relative;
+        }
+
+        .card h3 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+        }
+
+        .card h3 a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .card h3 a:hover {
+            text-decoration: underline;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+
+        .summary {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #334155;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-left: 8px;
+        }
+
+        .badge-POSITIVE { background: #dcfce7; color: var(--positive); }
+        .badge-NEGATIVE { background: #fee2e2; color: var(--negative); }
+        .badge-NEUTRAL { background: #fef9c3; color: var(--neutral); }
+
+        .loading, .error {
+            text-align: center;
+            padding: 20px;
+            display: none;
+            font-weight: 500;
+        }
+
+        .error {
+            color: var(--negative);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🤖 ML RSS News Reader</h1>
+
+    <div class="control-panel">
+        <form id="rssForm">
+            <div class="input-group">
+                <input type="url" id="feedUrl" placeholder="Enter RSS Feed URL..." required>
+                <input type="number" id="limit" value="5" min="1" max="20" title="Limit">
+                <button type="submit">Fetch & Analyze</button>
+            </div>
+            
+            <label class="checkbox-group">
+                <input type="checkbox" id="analyzeToggle" checked> Enable AI Sentiment Analysis
+            </label>
+        </form>
+
+        <div class="presets">
+            <span style="font-size: 12px; align-self: center; color: var(--text-muted);">Quick Presets:</span>
+            <button class="preset-btn" onclick="setFeed('https://news.ycombinator.com/rss')">Hacker News</button>
+            <button class="preset-btn" onclick="setFeed('https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml')">NY Times</button>
+            <button class="preset-btn" onclick="setFeed('http://feeds.bbci.co.uk/news/rss.xml')">BBC News</button>
+        </div>
+    </div>
+
+    <div id="dashboardSummary" class="dashboard-summary">
+        <h3>📊 Feed Sentiment Overview</h3>
+        <p id="summaryText"></p>
+    </div>
+
+    <div id="loading" class="loading">Analyzing feed articles with AI model... Please wait...</div>
+    <div id="error" class="error"></div>
+    <div id="feedContent"></div>
+</div>
+
+<script>
+    const form = document.getElementById('rssForm');
+    const feedUrlInput = document.getElementById('feedUrl');
+    const limitInput = document.getElementById('limit');
+    const analyzeToggle = document.getElementById('analyzeToggle');
+    const loadingDiv = document.getElementById('loading');
+    const errorDiv = document.getElementById('error');
+    const feedContentDiv = document.getElementById('feedContent');
+    const dashboardSummary = document.getElementById('dashboardSummary');
+    const summaryText = document.getElementById('summaryText');
+
+    function setFeed(url) {
+        feedUrlInput.value = url;
+        fetchFeed();
+    }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        fetchFeed();
+    });
+
+    async function fetchFeed() {
+        const url = feedUrlInput.value;
+        const limit = limitInput.value;
+        const analyze = analyzeToggle.checked;
+
+        if (!url) return;
+
+        loadingDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+        dashboardSummary.style.display = 'none';
+        feedContentDiv.innerHTML = '';
+
+        try {
+            const endpoint = `/rss?url=${encodeURIComponent(url)}&limit=${limit}&analyze=${analyze}`;
+            const response = await fetch(endpoint);
+            
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.detail || 'Failed to fetch RSS feed');
+            }
+
+            const data = await response.json();
+            renderFeed(data);
+        } catch (err) {
+            errorDiv.textContent = err.message;
+            errorDiv.style.display = 'block';
+        } finally {
+            loadingDiv.style.display = 'none';
+        }
+    }
+
+    function renderFeed(data) {
+        let html = `
+            <div class="feed-header">
+                <h2><a href="${data.feed_link}" target="_blank" rel="noopener">${data.feed_title}</a></h2>
+            </div>
+        `;
+
+        if (data.analysis_summary) {
+            const sum = data.analysis_summary;
+            dashboardSummary.style.display = 'block';
+            summaryText.innerHTML = `
+                Total Articles Analyzed: <b>${sum.total_articles}</b> | 
+                Dominant Sentiment: <span class="badge badge-${sum.dominant_sentiment}">${sum.dominant_sentiment}</span><br>
+                Breakdown: 🟢 Positive (${sum.sentiment_distribution.positive}), 🔴 Negative (${sum.sentiment_distribution.negative})
+            `;
+        }
+
+        data.items.forEach(item => {
+            let sentimentBadge = '';
+            if (item.sentiment && item.sentiment.label) {
+                const label = item.sentiment.label;
+                const score = (item.sentiment.score * 100).toFixed(1);
+                sentimentBadge = `<span class="badge badge-${label}">${label} (${score}%)</span>`;
+            }
+
+            html += `
+                <div class="card">
+                    <h3><a href="${item.link}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a> ${sentimentBadge}</h3>
+                    <div class="meta">
+                        ${item.published ? `<span>Published: ${escapeHtml(item.published)}</span>` : ''}
+                        ${item.author ? ` | <span>By: ${escapeHtml(item.author)}</span>` : ''}
+                    </div>
+                    <div class="summary">${item.summary || 'No summary available.'}</div>
+                </div>
+            `;
+        });
+
+        feedContentDiv.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>
